@@ -8,7 +8,7 @@ The plugin assumes:
   - HEAT templates exist in a git repository
   - Deployment scripts exist in either a git repository or are attached as a tar.gz file to each artifact in Nexus
 
-The HEAT repositoryis expected to have this structure:
+The HEAT repositories expected to have this structure:
 ```sh
 `-- <product name>
     |-- <product name>.env.yaml
@@ -19,7 +19,7 @@ The HEAT repositoryis expected to have this structure:
         |-- some other bash.sh
         `-- some other bash.sh
 ```
-For ecample - this is the structure of the demo heat tyemplate:
+For example - this is the structure of the demo heat template:
 ```
 `-- demo
     |-- demo.env.yaml

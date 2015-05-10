@@ -38,18 +38,22 @@ Prior to adding create/deploy product/profile, you should set your Nexus server 
 
 To package your product:
 1. Create a free-style job 
+
 ![enter image description here](https://raw.githubusercontent.com/foundation-runtime/jenkins-openstack-deployment-plugin/master/resources/images/create_1.jpg) 
 
 2. Add a 'Create Product' step: 
+
 ![enter image description here](https://raw.githubusercontent.com/foundation-runtime/jenkins-openstack-deployment-plugin/master/resources/images/create_2.jpg)
 
 3.  Select group ID, artifact ID, and set git repository paths for your heat templates and deployment scripts
 HEAT git repo is mandatory.  Scripts and puppets repos are optional.
+
 ![enter image description here](https://raw.githubusercontent.com/foundation-runtime/jenkins-openstack-deployment-plugin/master/resources/images/create_3.jpg)
 
 4. Add dependent products, artifacts and external dependencies.
 External dependencies are resources which do not exist in Nexus.
 They should be accessible via http.
+
 ![enter image description here](https://raw.githubusercontent.com/foundation-runtime/jenkins-openstack-deployment-plugin/master/resources/images/create_5.jpg)
 
 Once you build your product, 3 artifacts are uploaded to Nexus:
@@ -59,22 +63,27 @@ Once you build your product, 3 artifacts are uploaded to Nexus:
 
 Now you can define a 'deploy' job to deploy the product you packaged in an OpenStack environment
 1. Create a free-style job
+
 ![enter image description here](https://raw.githubusercontent.com/foundation-runtime/jenkins-openstack-deployment-plugin/master/resources/images/deploy_1.jpg)
 
 2. Mark job as 'parametrized' and define a string parameter named 'version'
 
-3.  Add a 'Deploy Prodtct' built step
+3.  Add a 'Deploy Product' built step
+
 ![enter image description here](https://raw.githubusercontent.com/foundation-runtime/jenkins-openstack-deployment-plugin/master/resources/images/deploy_2.jpg)
 
 4. Set product parameters and OpenStack credentials 
+
 ![enter image description here](https://raw.githubusercontent.com/foundation-runtime/jenkins-openstack-deployment-plugin/master/resources/images/deploy_3.jpg)
 
 5. You may define product-specific parameters, and set value to common parameters
+
 ![enter image description here](https://raw.githubusercontent.com/foundation-runtime/jenkins-openstack-deployment-plugin/master/resources/images/deploy_5.jpg)
 
-6.You'll have to prepare a machine which will act as a YUM repo.
+6. You'll have to prepare a machine which will act as a YUM repo.
 The machine should have some WebServer installed on it, and point 
 /var/www/html to /ci-repo.
 Jenkins will copy the artifacts to this yum repo.
 To do that, it needs root's private key.
+
 ![enter image description here](https://raw.githubusercontent.com/foundation-runtime/jenkins-openstack-deployment-plugin/master/resources/images/deploy_9.jpg)

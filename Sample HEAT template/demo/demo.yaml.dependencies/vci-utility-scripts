@@ -1,0 +1,127 @@
+#!/bin/bash
+
+echo 'this is our vci-utility-scripts'
+
+#set -x 
+function print_usage() {
+echo 'do_nsupdate.sh version 1.03           June 16 2014'
+echo '=================================================='
+echo
+echo 'do_nsupdate.sh will register instance hostname to DNS server'
+echo '-h  print usage'
+echo '-H  print usage'
+echo '-?  print usage'
+}
+
+HOSTALIAS=`hostname`
+METHOD="add"
+IP=`ip addr show dev eth0 | sed -nr 's/.*inet ([^ /]+).*/\1/p'`
+RECORD=A
+LOGGER=EMPTY
+ETH=eth0
+
+if [ x"${METHOD}" != xadd -a x"${METHOD}" != xdelete ]
+then
+    print_usage
+    echo 'MUST use either -A or -D flag'
+    exit
+fi
+
+if [ x"${HOSTALIAS}" = x -o  x"${HOSTALIAS}" = xEMPTY ]
+then
+    print_usage
+    echo "MUST use -N <hostalias>"
+    exit
+fi
+
+if [ x"${RECORD}" = x -o  x"${RECORD}" = xEMPTY ]
+then
+    print_usage
+    echo "MUST use -R <record_type>"
+    exit
+fi
+
+if [ x"${RECORD}" != xA -a x"${RECORD}" != xCNAME ]
+then
+    print_usage
+    echo "Record_type must be either 'A' or 'CNAME'"
+    exit
+fi
+
+if [ x"${IP}" = xEMPTY -a x"${RECORD}" = xA ]
+then
+    IP=`ifconfig ${ETH} | sed "/^[      ]*inet addr/ !d" | cut -f2 -d':' | awk '{print $1}'`
+fi
+
+DOMAIN_NAME=`grep -m 1 search /etc/resolv.conf | awk '{print $2}'`
+
+NAMESERVER=`grep -m 1 nameserver /etc/resolv.conf | awk '{print $2}'`
+
+if [ -f /opt/nds/custom_tools/etc/project.cfg ]
+then
+    HOSTNAME=`hostname | cut -f1 -d'.'`'.'`cat /opt/nds/custom_tools/etc/project.cfg`'.'"${DOMAIN_NAME}"
+else
+    HOSTNAME=`hostname | cut -f1 -d'.'`".${DOMAIN_NAME}"
+fi
+
+if [ x"${NAMESERVER}" != x ]
+then
+    if [ x"$IP" = xEMPTY ]
+    then
+nsupdate 1>/dev/null 2>&1 <<EOF
+server ${NAMESERVER}
+update ${METHOD} ${HOSTALIAS}.${DOMAIN_NAME} 300 ${RECORD} ${HOSTNAME} 
+show
+send
+EOF
+        if [ x"${LOGGER}" != xEMPTY ]
+        then
+	    logger -t "${LOGGER}" "Update nameserver ${NAMESERVER} : update ${METHOD} ${HOSTALIAS}.${DOMAIN_NAME} 300 ${RECORD} ${HOSTNAME}"
+	fi
+    else
+	case ${METHOD} in
+	add) 
+nsupdate 1>/dev/null 2>&1 <<EOF
+server ${NAMESERVER}
+update ${METHOD} ${HOSTALIAS}.${DOMAIN_NAME} 300 ${RECORD} ${IP} 
+show
+send
+EOF
+        if [ x"${LOGGER}" != xEMPTY ]
+        then
+	    logger -t "${LOGGER}" "Update nameserver ${NAMESERVER} : update ${METHOD} ${HOSTALIAS}.${DOMAIN_NAME} 300 ${RECORD} ${IP}"
+	fi;;
+	delete)
+nsupdate 1>/dev/null 2>&1 <<EOF
+server ${NAMESERVER}
+update ${METHOD} ${HOSTALIAS}.${DOMAIN_NAME} ${RECORD} 
+show
+send
+EOF
+        if [ x"${LOGGER}" != xEMPTY ]
+        then
+	    logger -t "${LOGGER}" "Update nameserver ${NAMESERVER} : update ${METHOD} ${HOSTALIAS}.${DOMAIN_NAME} ${RECORD}"
+	fi;;
+        esac
+    fi
+fi
+
+
+echo "define repositories"
+cat > /etc/yum.repos.d/infra.repo <<EOFCISCOREPO
+[Heat-Infra]
+name = Infrastructure packages
+baseurl = http://10.57.58.252/infra/6/x86_64/
+enabled = 1
+#gpgcheck = 0
+EOFCISCOREPO
+cat > /etc/yum.repos.d/heat_ci.repo <<EOFCISCOREPO
+[Heat-CI]
+name = Cisco CI packages
+baseurl = http://10.57.58.252/ci-repo/latest/
+enabled = 1
+#gpgcheck = 0
+EOFCISCOREPO
+
+# ----------
+echo "http_caching=packages" >> /etc/yum.conf

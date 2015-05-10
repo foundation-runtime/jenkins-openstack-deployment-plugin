@@ -1,0 +1,118 @@
+heat_template_version: 2013-05-23
+description: >
+  Heat template for deploying a stand anlone instance with restart instance.
+  Ver. 1.0.4-0
+parameters:
+  nameprefix:
+    type: string
+    description: A prefix string for the name of the instance
+  instance_name:
+    type: string 
+    description: The name of the instance
+  key_name:
+    type: string
+    description: SSH key to connect to the servers
+  image:
+    type: string
+    description: Image used for servers
+  flavor:
+    type: string
+    description: flavor used by the servers
+  private_network_id:
+    type: string
+    description: ID of network into which servers get deployed
+  floating_ip_id:
+    type: string
+    description: Floationg IP ID to associate to the Load Balancer 
+  
+  security_groups: 
+    type: comma_delimited_list 
+    description: List of security groups to attach.  
+  availability_zone:
+    type: string
+    description: The Availability Zone in which to launch the instance.
+  component_installation:
+    type: string
+    description: The boot script to run on instance creation.
+  deployment_timeout:
+    type: number
+    description: The time it takes for this instance to be fully deployed.
+  port:
+    type: string
+    description: The listening port for the instance.
+    
+resources:
+     
+  rnd_str:
+    type: OS::Heat::RandomString
+    properties:
+      length: 4
+  
+  server_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_network_id }
+      security_groups: { get_param: security_groups }
+
+  server:
+    type: OS::Nova::Server
+    properties:
+      name:
+        str_replace:
+          template: $nameprefix-$instance_name-$rnd_str
+          params:
+            $nameprefix : { get_param: nameprefix }
+            $instance_name: { get_param: instance_name }
+            $rnd_str: { get_attr: [ rnd_str, value ] }
+      flavor: {get_param: flavor}
+      image: {get_param: image}
+      key_name: {get_param: key_name}
+      availability_zone: { get_param: availability_zone }
+      networks:
+        - port: { get_resource: server_port }
+      metadata: {'metering.instance_stack':  { get_param: "OS::stack_name" } }
+      user_data_format: RAW
+      user_data: 
+        str_replace:
+          template:  
+            { get_file: general_user_data.sh } 
+          params:
+            # admin
+            $vci_utility_scripts: { get_file: vci-utility-scripts }
+            $check_installation:
+              str_replace:
+                template: { get_file: check_installation.sh }
+                params: 
+                  $wait_handle: { get_resource: wait_handle }
+                  $port: { get_param: port } 
+            
+            # component related
+            $component_installation: { get_param: component_installation }
+  
+    
+  floating_ip:
+    type: OS::Neutron::FloatingIPAssociation
+    properties:
+      floatingip_id: { get_param: floating_ip_id }   
+      port_id: { get_resource: server_port }  
+            
+  restart_policy:
+    type: OS::Heat::HARestarter
+    properties:
+      InstanceId: {get_resource: server} 
+      
+  wait_handle: 
+      type: AWS::CloudFormation::WaitConditionHandle
+
+  wait_condition: 
+    type: AWS::CloudFormation::WaitCondition
+    depends_on: [ server ]
+    properties: 
+      Handle: { get_resource: wait_handle }
+      Timeout: { get_param: deployment_timeout } 
+
+outputs:
+  internal_ip_address:
+    description: Internal instance IP address
+    value: { get_attr:  [ server, first_address ]}  
+   

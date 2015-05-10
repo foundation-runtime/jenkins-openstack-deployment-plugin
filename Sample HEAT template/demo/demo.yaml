@@ -1,0 +1,111 @@
+heat_template_version: 2013-05-23
+
+description:
+  Demo Template for a stand alone WebService.
+
+parameters:
+
+  product_version:
+    type: string
+    description: Version of the product
+
+  private_network_id:
+    type: string
+    description: Network Id
+
+  key_name:
+    type: string
+    description: Key pair Id
+
+  image:
+    type: string
+    description: Name of image used in instance creation 
+
+  flavor:
+    type: string
+    description: Name of flavor used in instance creation 
+
+  webservice.floatingipid:
+    type: string
+    description: Floating IP for API domain (required by provisioning policy; not used in this template)
+
+  webservice.fqdn:
+    type: string
+    description: FQDN for API domain (required by provisioning policy; not used in this template)
+
+  availability_zone:
+    type: string
+    description: Availability zone name for the main example AZ
+
+  nameprefix:
+    type: string
+    default: demo
+    description: A unique prefix for all instances names
+
+  product_artifact_id:
+      type: string
+      default: "demo-product"
+      description: product_artifact_id
+
+  nginx::user:
+      type: string
+      description: a string to print in the web service
+
+resources:
+
+
+  web_service_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Basic Security Group for SSH
+      rules:
+      - remote_ip_prefix: 0.0.0.0/0
+        protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+      - remote_ip_prefix: 0.0.0.0/0
+        protocol: tcp
+        port_range_min: 80
+        port_range_max: 80
+      - remote_ip_prefix: 0.0.0.0/0
+        protocol: icmp 
+
+  webservice:
+    type: __stand_alone_external_instance.yaml
+    properties:
+      nameprefix: { get_param: nameprefix }
+      instance_name: NGNIX
+      key_name:  { get_param: key_name}
+      flavor: { get_param:  flavor }
+      image: { get_param: image }
+      private_network_id: { get_param: private_network_id }
+      availability_zone: { get_param: availability_zone }
+      floating_ip_id: { get_param: webservice.floatingipid }
+      security_groups: 
+      - { get_resource: web_service_security_group }
+      port: "80"
+      component_installation:
+        str_replace:
+          template: { get_file: component_installation.sh }
+          params:
+            $product_artifact_id: { get_param: product_artifact_id }
+            $product_version: { get_param : product_version }
+            $component_list: 'nginx'
+            $args_list:
+              str_replace:
+                template: $arg1_=_$val1
+                params:
+                  $arg1: "nginx::user"
+                  $val1: { get_param: "nginx::user" }
+      deployment_timeout: 1200
+
+
+outputs:
+  webservice_url:
+    description: Web Service URL 
+    value:
+      str_replace:
+        template:
+           http://$console/index.html
+        params:
+          $console:  { get_attr: [webservice,internal_ip_address]  }  

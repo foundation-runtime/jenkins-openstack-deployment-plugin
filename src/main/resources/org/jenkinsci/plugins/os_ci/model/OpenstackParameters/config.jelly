@@ -1,0 +1,84 @@
+<!--
+* Copyright 2015 Cisco Systems, Inc.
+*
+*  Licensed under the Apache License, Version 2.0 (the "License");
+*  you may not use this file except in compliance with the License.
+*  You may obtain a copy of the License at
+*
+*  http://www.apache.org/licenses/LICENSE-2.0
+*
+*  Unless required by applicable law or agreed to in writing, software
+*  distributed under the License is distributed on an "AS IS" BASIS,
+*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*  See the License for the specific language governing permissions and
+*  limitations under the License.
+-->
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+  <!--
+    This jelly script is used for per-project configuration.
+
+    See global.jelly for a general discussion about jelly script.
+  -->
+
+  <!--
+    Creates a text field that shows the value of the "artifactId" property.
+    When submitted, it will be passed to the corresponding constructor parameter.
+  -->
+
+
+    <f:section title="Openstack Credentials">
+        <f:entry title="OpenStack IP" field="openstackIP">
+            <f:textbox default="your openstack ip"/>
+        </f:entry>
+        <f:entry title="OpenStack User Name" field="openstackUser">
+            <f:textbox default="openstack-user"/>
+        </f:entry>
+        <f:entry title="OpenStack Password" field="openstackPassword">
+            <f:textbox default="openstack-password"/>
+        </f:entry>
+        <f:entry title="OpenStack Tenant Name" field="openstackTenant">
+            <f:textbox default="openstack-tenant"/>
+        </f:entry>
+    </f:section>
+
+    <f:validateButton
+            title="${%Test Openstack Connection}" progress="${%Testing...}"
+            method="testOpenstackConnection" with="openstackIP,openstackUser,openstackPassword,openstackTenant" />
+
+    <f:advanced title="Advanced Parameters" align="left">
+        <f:entry title="Key Pair" field="keyPair">
+             <f:textbox default="jenkins_keypair"/>
+        </f:entry>
+
+        <f:entry title="Private Network ID" field="privateNetworkID">
+             <f:textbox default=""/>
+        </f:entry>
+        <f:entry title="Private Subnet ID" field="privateSubnetID">
+             <f:textbox default=""/>
+        </f:entry>
+
+        <f:entry title="${%List of key-value pairs}">
+            <f:repeatable var="additionalParams" items="${instance.additionalParams.entrySet()}">
+                <table width="100%">
+                    <f:entry title="${%name}">
+                        <f:textbox name="env.key" value="${additionalParams.key}" />
+                    </f:entry>
+                    <f:entry title="${%value}" field="env.value">
+                        <f:textbox name="env.value" value="${additionalParams.value}"/>
+                    </f:entry>
+                    <f:entry title="">
+
+                        <div align="right">
+                            <f:repeatableDeleteButton />
+                        </div>
+                    </f:entry>
+                </table>
+            </f:repeatable>
+
+        </f:entry>
+
+        <f:property field="policyParameters"/>
+
+    </f:advanced>
+
+</j:jelly>

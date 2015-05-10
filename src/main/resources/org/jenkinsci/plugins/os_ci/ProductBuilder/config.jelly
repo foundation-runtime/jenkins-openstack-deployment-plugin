@@ -1,0 +1,120 @@
+<!--
+* Copyright 2015 Cisco Systems, Inc.
+*
+*  Licensed under the Apache License, Version 2.0 (the "License");
+*  you may not use this file except in compliance with the License.
+*  You may obtain a copy of the License at
+*
+*  http://www.apache.org/licenses/LICENSE-2.0
+*
+*  Unless required by applicable law or agreed to in writing, software
+*  distributed under the License is distributed on an "AS IS" BASIS,
+*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*  See the License for the specific language governing permissions and
+*  limitations under the License.
+-->
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+  <!--
+    This jelly script is used for per-project configuration.
+
+    See global.jelly for a general discussion about jelly script.
+  -->
+
+  <!--
+    Creates a text field that shows the value of the "artifactId" property.
+    When submitted, it will be passed to the corresponding constructor parameter.
+  -->
+
+    <f:entry title="Product Name">
+        <f:textbox field="artifactId" value="${artifactId}"/>
+    </f:entry>
+    <f:entry title="Group Id">
+        <f:textbox field="groupId" value="${groupId}"/>
+    </f:entry>
+
+    <f:entry title="HEAT Templates GIT repo" field="heatGitUrl">
+        <f:textbox default="HTTP url of your gir repository containing heat templates"/>
+   </f:entry>
+
+    <f:entry title="Deploy Scripts GIT repo" field="scriptsGitUrl">
+        <f:textbox default="HTTP url of your gir repository containing deployment scripts (optional)"/>
+   </f:entry>
+
+    <f:entry title="Puppet Base Repository" field="puppetBaseGitUrl">
+        <f:textbox default="HTTP url of your gir repository containing Puppet scripts (optional)"/>
+    </f:entry>
+
+    <f:entry title="Version Change Mode" field="increaseVersionOption">
+        <f:select/>
+    </f:entry>
+
+    <f:entry title="Dependent Product list">
+        <f:repeatable var="dependentProducts" field="dependentProducts" items="${instance.dependentProducts}" noAddButton="false" minimum="0" add="Add Product">
+            <table width="100%">
+                <f:entry title="Group Id">
+                    <f:textbox field="groupId" value="${dependentProducts.groupId}"/>
+                </f:entry>
+                <f:entry title="Artifact Id">
+                    <f:textbox field="artifactId" value="${dependentProducts.artifactId}"/>
+                </f:entry>
+                <f:entry title="Version">
+                    <f:textbox field="version" value="${dependentProducts.version}" default="LATEST"/>
+                </f:entry>
+                <f:entry>
+                    <div align="right" class="repeatable-delete show-if-only" style="margin-left: 1em;">
+                        <f:repeatableDeleteButton value="${%Delete Product}"/>
+                        <br/>
+                    </div>
+                </f:entry>
+            </table>
+        </f:repeatable>
+    </f:entry>
+
+    <f:entry title="Dependent Artifacts list">
+        <f:repeatable var="artifacts" field="artifacts" items="${instance.artifacts}" noAddButton="false" minimum="0" add="Add Artifact">
+            <table width="100%">
+                <f:entry title="Group Id">
+                    <f:textbox field="groupId" value="${artifacts.groupId}"/>
+                </f:entry>
+                <f:entry title="Artifact Id">
+                    <f:textbox field="artifactId" value="${artifacts.artifactId}"/>
+                </f:entry>
+                <f:entry title="Version">
+                    <f:textbox field="version" value="${artifacts.version}" default="LATEST"/>
+                </f:entry>
+                <f:entry title="osVersion" field="osVersion">
+                <f:select/>
+                </f:entry>
+                <f:entry>
+                    <div align="right" class="repeatable-delete show-if-only" style="margin-left: 1em;">
+                        <f:repeatableDeleteButton value="${%Delete Artifact}"/>
+                        <br/>
+                    </div>
+                </f:entry>
+            </table>
+        </f:repeatable>
+    </f:entry>
+
+    <f:entry title="External Dependencies">
+        <f:repeatable var="externalDependencies" field="externalDependencies" items="${instance.externalDependencies}" noAddButton="false" minimum="0" add="Add Dependency">
+            <table width="100%">
+                <f:entry title="URL">
+                    <f:textbox field="url" value="${externalDependencies.url}"/>
+                </f:entry>
+                <f:advanced title="Advanced..." align="right">
+                    <f:entry title="Destination Filename">
+                        <f:textbox field="destinationFileName" value="${externalDependencies.destinationFileName}"/>
+                    </f:entry>
+                </f:advanced>
+                <f:entry>
+                    <div align="right" class="repeatable-delete show-if-only" style="margin-left: 1em;">
+                        <f:repeatableDeleteButton value="${%Delete Dependency}"/>
+                        <br/>
+                    </div>
+                </f:entry>
+            </table>
+        </f:repeatable>
+    </f:entry>
+
+
+</j:jelly>

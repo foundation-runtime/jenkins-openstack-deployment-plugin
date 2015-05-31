@@ -1,6 +1,7 @@
 package org.jenkinsci.plugins.os_ci.utils;
 
 import hudson.model.*;
+import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.os_ci.exceptions.ArtifactVersionNotFoundException;
 import org.jenkinsci.plugins.os_ci.exceptions.OsCiPluginException;
 import org.jenkinsci.plugins.os_ci.model.ArtifactParameters;
@@ -13,19 +14,20 @@ import java.util.regex.Pattern;
 
 /**
  * Copyright 2015 Cisco Systems, Inc.
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */public class VersionUtils {
+ * <p/>
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * <p/>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p/>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+public class VersionUtils {
 
     static public enum increaseVersionOptions {
         MAJOR, MINOR, PACTH, BUILD;
@@ -93,6 +95,10 @@ import java.util.regex.Pattern;
                 if (artifact.getVersion().equalsIgnoreCase("latest")) {
                     NexusClient nc = new NexusClient(artifact, build, listener);
                     moduleVersion = nc.getLatestVersion();
+                } else if (StringUtils.containsIgnoreCase(artifact.getVersion(), "cisco_vcs-f_snapshots")) {
+//                    repoId = "cisco_vcs-f_snapshots";
+                    NexusClient nc = new NexusClient(artifact, build, listener);
+                    moduleVersion = nc.getLatestVersion("cisco_vcs-f_snapshots");
                 }
 
                 if (artifact.getVersion().equalsIgnoreCase("latest-snapshot")) {
@@ -101,14 +107,14 @@ import java.util.regex.Pattern;
                 }
 
                 //checkArtifactVersion(artifact.getArtifactId(), moduleVersion);
-                resolvedModules.add(new ArtifactParameters(artifact.getGroupId(), artifact.getArtifactId(), moduleVersion,artifact.getOsVersion()));
+                resolvedModules.add(new ArtifactParameters(artifact.getGroupId(), artifact.getArtifactId(), moduleVersion, artifact.getOsVersion()));
             }
         }
         return resolvedModules;
     }
 
     public static String getVersionParameterValue(AbstractBuild build) {
-        List<ParametersAction> actions =  build.getActions(ParametersAction.class);
+        List<ParametersAction> actions = build.getActions(ParametersAction.class);
         if (actions == null) {
             throw new OsCiPluginException("Boolean job parameter called 'promote' is required but missing");
         }
@@ -124,8 +130,23 @@ import java.util.regex.Pattern;
         if (versionValue.getClass() != StringParameterValue.class) {
             throw new OsCiPluginException("Job parameter called 'string' exists, but is not String as should");
         }
-        return ((StringParameterValue)versionValue).value;
+        return ((StringParameterValue) versionValue).value.trim();
     }
 
-
+    public static boolean checkVersionParameterExists(AbstractBuild build) {
+        List<ParametersAction> actions = build.getActions(ParametersAction.class);
+        if (actions == null) {
+            return false;
+        }
+        ParameterValue versionValue = null;
+        for (ParametersAction action : actions) {
+            versionValue = action.getParameter("version");
+            if (versionValue != null && !((StringParameterValue) versionValue).value.equalsIgnoreCase("") && !((StringParameterValue) versionValue).value.equalsIgnoreCase("latest")) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+        return false;
+    }
 }

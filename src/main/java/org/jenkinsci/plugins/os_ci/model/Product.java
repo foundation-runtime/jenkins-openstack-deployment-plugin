@@ -7,9 +7,9 @@ import hudson.model.BuildListener;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
-import org.jenkinsci.plugins.os_ci.ProductDeployer;
 import org.jenkinsci.plugins.os_ci.exceptions.OsCiPluginException;
 import org.jenkinsci.plugins.os_ci.exceptions.ProductDeployPluginException;
+import org.jenkinsci.plugins.os_ci.model.Openstack.DeployParmeters;
 import org.jenkinsci.plugins.os_ci.model.Openstack.FloatingIP;
 import org.jenkinsci.plugins.os_ci.model.Openstack.StackDetails;
 import org.jenkinsci.plugins.os_ci.model.Openstack.StackStatus;
@@ -32,18 +32,18 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * Copyright 2015 Cisco Systems, Inc.
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
+ * <p/>
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * <p/>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p/>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 public class Product {
 
@@ -65,8 +65,10 @@ public class Product {
         return artifact;
     }
 
-    public boolean deploy(NexusClient nexusClient, OpenStackClient openStackClient, YumRepoParameters yumRepoParameters, ProductDeployer.DescriptorImpl descriptor) throws Exception {
+    public boolean deploy(NexusClient nexusClient, OpenStackClient openStackClient, YumRepoParameters yumRepoParameters, DeployParmeters deployParmeters) throws Exception {
         final String targetFolder = Joiner.on(File.separator).join(build.getWorkspace().getRemote(), "archive");
+
+        LogUtils.logSection(listener, "Deploy Product " + artifact.getArtifactId());
 
         List<String> fileTypes = new ArrayList<String>();
         fileTypes.add("pom");
@@ -80,14 +82,14 @@ public class Product {
 
         for (ArtifactParameters m : subProducts) {
             Product p = new Product(m, build, listener);
-            boolean return_ = p.deploy(nexusClient, openStackClient, yumRepoParameters, descriptor);
+            boolean return_ = p.deploy(nexusClient, openStackClient, yumRepoParameters, deployParmeters);
             if (!return_)
                 throw new ProductDeployPluginException("Deploy dependent product " + m.getArtifactId() + " failed.");
         }
 
-        LogUtils.logSection(listener, "Deploy Product " + artifact.getArtifactId());
 
-        String buildId = Joiner.on("-").join(new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss-SS").format(build.getTime()), descriptor.getDeployCounter());
+
+        String buildId = Joiner.on("-").join(new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss-SS").format(build.getTime()), deployParmeters.getDeployCounter());
 
 
         if (!new File(Joiner.on(File.separator).join(targetFolder, artifact.getArtifactId(), "external_dependencies.tar.gz")).exists()) {
@@ -142,7 +144,7 @@ public class Product {
         }
 
         // create yum repo
-        createAndMoveYumRepo(build, listener, yumRepoParameters, Joiner.on(File.separator).join(targetFolder, "repo"), String.valueOf(descriptor.getDeployCounter()));
+        createAndMoveYumRepo(build, listener, yumRepoParameters, Joiner.on(File.separator).join(targetFolder, "repo"), String.valueOf(deployParmeters.getDeployCounter()));
         LogUtils.log(listener, "YUM repository have been created.");
 
         // deploy stack
@@ -150,8 +152,8 @@ public class Product {
 
         openStackClient.createStack(
                 stackName,
-                descriptor.getOverridingParameters(),
-                descriptor.getGlobalOutputs(),
+                deployParmeters.getOverridingParameters(),
+                deployParmeters.getGlobalOutputs(),
                 Joiner.on(File.separator).join(targetFolder, artifact.getArtifactId(), "archive", "heat", stackName));
 
         long startTime = System.currentTimeMillis();
@@ -163,10 +165,10 @@ public class Product {
             if (stackStatus == StackStatus.CREATE_COMPLETE) {
                 createComplete = true;
                 // update outputs map
-                StackDetails stackOutputs = openStackClient.getStackOutputs(stackName);
-                descriptor.setGlobalOutputsWithNewOutputs(stackOutputs.getOutputs());
+                Map<String,String> stackOutputs = openStackClient.getStackOutputs(stackName);
+                deployParmeters.setGlobalOutputsWithNewOutputs(stackOutputs);
             } else if (stackStatus == StackStatus.FAILED || stackStatus == StackStatus.CREATE_FAILED || stackStatus == StackStatus.UNDEFINED)
-                throw new OsCiPluginException("Failed to Launch Stack " + stackName);
+                throw new ProductDeployPluginException("Failed to Launch Stack " + stackName);
             else
                 Thread.sleep(SLEEP_TIME);
 
@@ -180,15 +182,14 @@ public class Product {
             FileUtils.cleanDirectory(new File(Joiner.on(File.separator).join(targetFolder, "repo")));
         } catch (IOException e) { /*Swallow*/ }
 
-        descriptor.increaseDeployCounter();
+        deployParmeters.increaseDeployCounter();
         LogUtils.log(listener, "Increased deployment counter.");
 
         return true;
 
     }
 
-
-    public boolean cleanOpenstackBeforeDeployment(NexusClient nexusClient, OpenstackParameters openstackParameters, ProductDeployer.DescriptorImpl descriptor) throws Exception {
+    public boolean cleanOpenstackBeforeDeployment(NexusClient nexusClient, OpenstackParameters openstackParameters, DeployParmeters deployParmeters) throws Exception {
         final String targetFolder = Joiner.on(File.separator).join(build.getWorkspace().getRemote(), "archive");
 
 
@@ -213,15 +214,16 @@ public class Product {
             for (ArtifactParameters s : subsystems) {
                 String productName = s.getArtifactId().toLowerCase().replace("-product", "");
 
-                if (openStackClient.stackExists(productName)) {
+                StackDetails stackDetails = openStackClient.getStackDetails(productName);
+                if (stackDetails.getStackStatus() != StackStatus.UNDEFINED ) {
                     LogUtils.log(listener, "Deleting stack " + productName);
-                    openStackClient.deleteStack(productName);
+                    openStackClient.deleteStack(stackDetails);
                     LogUtils.log(listener, "Releasing IPs");
                     openStackClient.releaseStackFloatingIPs(productName);
                 }
             }
         }
-        descriptor.setGlobalOutputs(new HashMap<String, String>());
+        deployParmeters.setGlobalOutputs(new HashMap<String, String>());
 
         // verify all deletions completed - run every minute for 30 minutes.
         if (subsystems != null) {
@@ -246,10 +248,10 @@ public class Product {
 
 
         // Prepare parameters map which override the stack 'env'
-        prepareStackOverrides(openStackClient,openstackParameters, descriptor);
+        prepareStackOverrides(openStackClient, openstackParameters, deployParmeters);
         LogUtils.log(listener, "Get User parameters");
 
-        descriptor.resetDeployCounter();
+        deployParmeters.resetDeployCounter();
         return true;
 
     }
@@ -261,11 +263,13 @@ public class Product {
 
     private void createAndMoveYumRepo(AbstractBuild build, BuildListener listener, YumRepoParameters yumRepoParameters, String folder, String deployCounter) throws IOException, InterruptedException {
 
+
         String deploymentScriptsRPM = "nds_" + artifact.getArtifactId() + "_deployment-scripts-" + artifact.getVersion() + "_1.noarch.rpm";
 
-        String basepath = Joiner.on("/").join("/var", "www", "html", "build", "latest");
-        String packagespath = Joiner.on("/").join("/var", "www", "html", "ci-repo", "Packages",deploymentScriptsRPM);
+        //String basepath = Joiner.on("/").join("/var", "www", "html", "build", "latest");
         String buildId = Joiner.on("-").join(new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss-SS").format(build.getTime()), deployCounter);
+        String packagespath = Joiner.on("/").join("/var", "www", "html", "ci-repo", artifact.getArtifactId(), "Packages", deploymentScriptsRPM);
+        String basepath = Joiner.on("/").join("/var", "www", "html", "build", buildId);
 
         copyFolderToRepoMachine(
                 build,
@@ -275,14 +279,13 @@ public class Product {
                 Joiner.on("/").join("/var", "www", "html", "build", buildId));
 
         // Update symlink on yum repo to point to latest build
-        setSymlinkOnYumRepo(yumRepoParameters, Joiner.on("/").join("/var", "www", "html", "build", buildId), basepath);
-
+        setSymlinkOnYumRepo(yumRepoParameters, basepath, Joiner.on("/").join("/var", "www", "html", "build", "latest"));
 
 
         String cmds[] = {
-                "rm -rf " + packagespath ,
+                "rm -rf " + packagespath,
                 "createrepo -o " + basepath + "/repo " + basepath + "/repo",
-                "pakrat --name ci-repo --repoversion " + buildId + " --baseurl http://" + yumRepoParameters.getYumRepoIP() + "/build/latest/repo/ --outdir /var/www/html/",
+                "pakrat --name " + artifact.getArtifactId() + " --repoversion " + buildId + " --baseurl http://" + yumRepoParameters.getYumRepoIP() + "/build/" + buildId + "/repo/ --outdir /var/www/html/ci-repo",
                 "rm -fr " + basepath + "/repo/*.rpm"};
         ExecUtils.executeRemoteCommand(listener, cmds, yumRepoParameters.getYumRepoIP(), yumRepoParameters.getYumRepoPrivateKey());
     }
@@ -324,21 +327,21 @@ public class Product {
             }
     }
 
-    private void prepareStackOverrides(OpenStackClient openStackClient ,OpenstackParameters openstackParameters, ProductDeployer.DescriptorImpl descriptor) {
-        Map<String, String> overrides = descriptor.getOverridingParameters();
+    private void prepareStackOverrides(OpenStackClient openStackClient, OpenstackParameters openstackParameters, DeployParmeters deployParmeters) {
+        Map<String, String> overrides = deployParmeters.getOverridingParameters();
 
         overrides.put("urn:com:cisco:vci:service:version", artifact.getVersion());
 
         // Openstack Parameters
-        if (StringUtils.isNotEmpty(openstackParameters.getKeyPair())){
+        if (StringUtils.isNotEmpty(openstackParameters.getKeyPair())) {
             overrides.put("key_name", openstackParameters.getKeyPair());
             overrides.put("urn:com:cisco:vci:heat:stack:keypairid", openstackParameters.getKeyPair());
         }
-        if (StringUtils.isNotEmpty(openstackParameters.getPrivateNetworkID())){
+        if (StringUtils.isNotEmpty(openstackParameters.getPrivateNetworkID())) {
             overrides.put("private_network_id", openstackParameters.getPrivateNetworkID());
             overrides.put("urn:com:cisco:vci:heat:stack:networkid", openstackParameters.getPrivateNetworkID());
         }
-        if (StringUtils.isNotEmpty(openstackParameters.getPrivateSubnetID())){
+        if (StringUtils.isNotEmpty(openstackParameters.getPrivateSubnetID())) {
             overrides.put("private_subnet_id", openstackParameters.getPrivateSubnetID());
             overrides.put("urn:com:cisco:vci:heat:stack:subnetid", openstackParameters.getPrivateSubnetID());
         }
@@ -354,51 +357,52 @@ public class Product {
         }
 
         // Policy Parameters
-        if (openstackParameters.getPolicyParameters().getNodeConfigurationsParameters() != null) {
-            // Node Configuration
-            for (NodeConfiguration nodeConfiguration : openstackParameters.getPolicyParameters().getNodeConfigurationsParameters()) {
-                overrides.put(nodeConfiguration.getName() + ".imagename", nodeConfiguration.getImageName());
-                overrides.put(nodeConfiguration.getName() + ".imageid", nodeConfiguration.getImageId());
-                overrides.put(nodeConfiguration.getName() + ".flavorname", nodeConfiguration.getFlavorName());
-                overrides.put(nodeConfiguration.getName() + ".flavorid", nodeConfiguration.getFlavorId());
-                overrides.put(nodeConfiguration.getName() + ".quantity:min", nodeConfiguration.getQuantityMin());
-                overrides.put(nodeConfiguration.getName() + ".quantity:max", nodeConfiguration.getQuantityMax());
+        if (openstackParameters.getPolicyParameters() != null ) {
+            if (openstackParameters.getPolicyParameters().getNodeConfigurationsParameters() != null) {
+                // Node Configuration
+                for (NodeConfiguration nodeConfiguration : openstackParameters.getPolicyParameters().getNodeConfigurationsParameters()) {
+                    overrides.put(nodeConfiguration.getName() + ".imagename", nodeConfiguration.getImageName());
+                    overrides.put(nodeConfiguration.getName() + ".imageid", nodeConfiguration.getImageId());
+                    overrides.put(nodeConfiguration.getName() + ".flavorname", nodeConfiguration.getFlavorName());
+                    overrides.put(nodeConfiguration.getName() + ".flavorid", nodeConfiguration.getFlavorId());
+                    overrides.put(nodeConfiguration.getName() + ".quantity:min", nodeConfiguration.getQuantityMin());
+                    overrides.put(nodeConfiguration.getName() + ".quantity:max", nodeConfiguration.getQuantityMax());
 
-                overrides.put("image", nodeConfiguration.getImageName());
-                overrides.put("flavor", nodeConfiguration.getFlavorName());
-                overrides.put("min_size", nodeConfiguration.getQuantityMin());
-                overrides.put("max_size", nodeConfiguration.getQuantityMax());
+                    overrides.put("image", nodeConfiguration.getImageName());
+                    overrides.put("flavor", nodeConfiguration.getFlavorName());
+                    overrides.put("min_size", nodeConfiguration.getQuantityMin());
+                    overrides.put("max_size", nodeConfiguration.getQuantityMax());
+                }
+            }
+            // Domains
+            if (openstackParameters.getPolicyParameters().getDomains() != null) {
+
+                String public_network_name = openStackClient.geListOfPublicNetworks().get(0).getName();
+                LogUtils.logSection(listener, "DNS Registration:");
+
+                for (Domain domain : openstackParameters.getPolicyParameters().getDomains()) {
+                    FloatingIP fip = openStackClient.createFloatingIP(public_network_name);
+                    // register to external DNS
+                    registerToExternalDNS(domain.getFqdn(), fip.getFloatingIpAddress(), openstackParameters.getNameservers());
+
+                    overrides.put(domain.getName() + ".fqdn", domain.getFqdn());
+                    overrides.put(domain.getName() + ".floatingipid", fip.getFloatingIpId());
+
+                    overrides.put("fqdn", domain.getFqdn());
+                    overrides.put("floating_ip_id", fip.getFloatingIpId());
+                }
+            }
+
+            //AZs
+            if (openstackParameters.getPolicyParameters().getAzs() != null) {
+                for (AZ az : openstackParameters.getPolicyParameters().getAzs()) {
+                    overrides.put(az.getName() + ".azname", az.getazname());
+
+                    overrides.put("availability_zone", az.getazname());
+                }
             }
         }
-        // Domains
-        if (openstackParameters.getPolicyParameters().getDomains() != null) {
-
-            String public_network_name = openStackClient.geListOfPublicNetworks().get(0).getName();
-            LogUtils.logSection(listener, "DNS Registration:");
-
-            for (Domain domain : openstackParameters.getPolicyParameters().getDomains()) {
-                FloatingIP fip = openStackClient.createFloatingIP(public_network_name);
-                // register to external DNS
-                registerToExternalDNS(domain.getFqdn(), fip.getFloatingIpAddress());
-
-                overrides.put(domain.getName() + ".fqdn", domain.getFqdn());
-                overrides.put(domain.getName() + ".floatingipid", fip.getFloatingIpId());
-
-                overrides.put("fqdn", domain.getFqdn());
-                overrides.put("floating_ip_id", fip.getFloatingIpId());
-            }
-        }
-
-        //AZs
-        if (openstackParameters.getPolicyParameters().getAzs() != null) {
-            for (AZ az : openstackParameters.getPolicyParameters().getAzs()) {
-                overrides.put(az.getName() + ".azname", az.getazname());
-
-                overrides.put("availability_zone", az.getazname());
-            }
-        }
-
-        descriptor.setOverridingParameters(overrides);
+        deployParmeters.setOverridingParameters(overrides);
     }
 
     public boolean downloadGitRepos(String tempTargetFolder, String targetFolder, String scriptsFolder, String scriptsGitUrl, String heatGitUrl, String puppetBaseGitUrl) {
@@ -529,22 +533,27 @@ public class Product {
     }
 
 
-    public void registerToExternalDNS(String fqdn, String ipaddress) {
-        try{
-            if (!System.getProperty("os.name").toLowerCase().startsWith("windows")) {
-                // re-register ip ot fqdn
-                LogUtils.log(listener, "DNS registration: " + fqdn + " to " + ipaddress);
+    public void registerToExternalDNS(String fqdn, String ipaddress, String nameservers) {
+        try {
 
+            LogUtils.log(listener, "DNS registration: " + fqdn + " to " + ipaddress);
+            if (!new File("/usr/local/bin/do_nsupdate").exists()) {
+                LogUtils.log(listener, "Cannot Register records to DNS. Expected script /usr/local/bin/do_nsupdate is missing");
+            } else if (!System.getProperty("os.name").toLowerCase().startsWith("windows") && !nameservers.isEmpty()) {
+                // re-register ip ot fqdn
                 if (fqdn.contains("_"))
                     throw new InterruptedException("FQDN string cannot contain '_'");
-                ExecUtils.executeLocalCommand("/usr/local/bin/do_nsupdate -D -N " + fqdn + " -R A", "/usr/local/bin/");
-                ExecUtils.executeLocalCommand("/usr/local/bin/do_nsupdate -I " + ipaddress + " -A -N " + fqdn + " -R A", "/usr/local/bin/");
+                ExecUtils.executeLocalCommand("/usr/local/bin/do_nsupdate -D -N " + fqdn + " -R A -S " + nameservers , "/usr/local/bin/");
+                ExecUtils.executeLocalCommand("/usr/local/bin/do_nsupdate -I " + ipaddress + " -A -N " + fqdn + " -R A -S "+ nameservers , "/usr/local/bin/");
             }
-        }
-        catch (InterruptedException e)
-        {
+            else if (nameservers.isEmpty())
+                LogUtils.log(listener, "could not register IP Address to an Empty DNS - please enter a valid nameserver IP or hostname ");
+            else
+                LogUtils.log(listener, "Cannot Register records to DNS under Windows OS");
+
+        } catch (InterruptedException e) {
             LogUtils.log(listener, "could not register IP Address to external DNS " + e.getMessage());
-            
+
         }
     }
 

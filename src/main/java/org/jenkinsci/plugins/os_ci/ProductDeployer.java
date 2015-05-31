@@ -5,12 +5,13 @@ import hudson.Launcher;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.BuildListener;
-import hudson.model.Descriptor;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.Builder;
 import net.sf.json.JSONObject;
 import org.jenkinsci.plugins.os_ci.exceptions.OsCiPluginException;
+import org.jenkinsci.plugins.os_ci.exceptions.ProductDeployPluginException;
 import org.jenkinsci.plugins.os_ci.model.ArtifactParameters;
+import org.jenkinsci.plugins.os_ci.model.Openstack.DeployParmeters;
 import org.jenkinsci.plugins.os_ci.model.OpenstackParameters;
 import org.jenkinsci.plugins.os_ci.model.Product;
 import org.jenkinsci.plugins.os_ci.model.YumRepoParameters;
@@ -22,7 +23,6 @@ import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
@@ -70,6 +70,8 @@ import java.util.concurrent.TimeoutException;
 
     @Override
     public boolean perform(AbstractBuild build, Launcher launcher, BuildListener listener) {
+        DeployParmeters deployParmeters = new DeployParmeters();
+
         try {
             ArtifactParameters artifact = new ArtifactParameters(groupId, artifactId, VersionUtils.getVersionParameterValue(build),"pom");
             OpenStackClient openStackClient = new OpenStackClient(listener, osParameters.getOpenstackUser(), osParameters.getOpenstackPassword(), osParameters.getOpenstackTenant(), "/v2.0/tokens", osParameters.getOpenstackIP(), 5000);
@@ -83,47 +85,53 @@ import java.util.concurrent.TimeoutException;
             }
             Product product = new Product(artifact, build, listener);
 
-            product.cleanOpenstackBeforeDeployment(nexusClient, osParameters, getDescriptor());
+            product.cleanOpenstackBeforeDeployment(nexusClient, osParameters, deployParmeters);
 
-            product.deploy(nexusClient, openStackClient, yumRepoParameters, getDescriptor());
+            product.deploy(nexusClient, openStackClient, yumRepoParameters, deployParmeters);
 
         } catch (IOException e) {
             LogUtils.log(listener, "Got an error! : " + e.getMessage());
-            releaseIPs(listener);
+            releaseIPs(listener,deployParmeters);
+            return false;
+        } catch (ProductDeployPluginException e) {
+            LogUtils.log(listener, "Got an error! : " + e.getMessage());
+            LogUtils.log(listener, "Failed to launch stack: Please check your Openstack instances logs.");
+            e.printStackTrace();
             return false;
         } catch (OsCiPluginException e) {
             LogUtils.log(listener, "Got an error! : " + e.getMessage());
             e.printStackTrace();
-            releaseIPs(listener);
+            releaseIPs(listener,deployParmeters);
             return false;
         } catch (InterruptedException e) {
             LogUtils.log(listener, "Got an error! : " + e.getMessage());
             e.printStackTrace();
-            releaseIPs(listener);
+            releaseIPs(listener, deployParmeters);
             return false;
         } catch (TimeoutException e) {
             LogUtils.log(listener, "Got an error! : " + e.getMessage());
             LogUtils.log(listener, "Timeout Exception: check if all stacks have been deleted : " + e.getMessage());
             e.printStackTrace();
-            releaseIPs(listener);
             return false;
         } catch (Exception e) {
             LogUtils.log(listener, "Got an error! : " + e.getMessage());
             e.printStackTrace();
-            releaseIPs(listener);
+            releaseIPs(listener, deployParmeters);
             return false;
         }
         return true;
     }
 
-    private void releaseIPs(BuildListener listener)
+    private void releaseIPs(BuildListener listener, DeployParmeters deployParmeters)
     {
 
-        LogUtils.log(listener, "Release Floating IPs:");
+        LogUtils.logSection(listener, "Release Floating IPs");
         OpenStackClient openStackClient = new OpenStackClient(listener, osParameters.getOpenstackUser(), osParameters.getOpenstackPassword(), osParameters.getOpenstackTenant(), "/v2.0/tokens", osParameters.getOpenstackIP(), 5000);
-        for (Map.Entry<String, String> entry : getDescriptor().getOverridingParameters().entrySet())
-            if (entry.getKey().contains("floatingipid") || entry.getKey().contains("floating_ip_id"))
+        for (Map.Entry<String, String> entry : deployParmeters.getOverridingParameters().entrySet())
+            if (entry.getKey().contains("floatingipid") || entry.getKey().contains("floating_ip_id")) {
                 openStackClient.releaseFloatingIP(entry.getValue());
+                LogUtils.log(listener, "Released Floating IP with ID: " + entry.getValue());
+            }
     }
 
     @Override
@@ -135,55 +143,14 @@ import java.util.concurrent.TimeoutException;
     @Extension // This indicates to Jenkins that this is an implementation of an extension point.
     public static final class DescriptorImpl extends BuildStepDescriptor<Builder> {
 
-        private int deployCounter = 0;
-        private Map<String, String> globalOutputs ;
-        private Map<String, String> overridingParameters;
-
         public DescriptorImpl(String name, String version, String groupid, OpenstackParameters osParameters) {
             super();
-            deployCounter = 0;
-            globalOutputs = new HashMap<String, String>();
-            overridingParameters = new HashMap<String, String>();
         }
 
         public DescriptorImpl() {
-            globalOutputs = new HashMap<String, String>();
-            overridingParameters = new HashMap<String, String>();
+
             load();
         }
-
-        public void setGlobalOutputs(Map<String, String> globalOutputs) {
-            this.globalOutputs = globalOutputs;
-        }
-
-        public void increaseDeployCounter() {
-            deployCounter = +1;
-        }
-
-        public void resetDeployCounter() {
-            deployCounter = 0;
-        }
-
-        public int getDeployCounter() {
-            return deployCounter;
-        }
-
-        public void setGlobalOutputsWithNewOutputs(Map<String, String> newGlobalOutputs) {
-            this.globalOutputs.putAll(newGlobalOutputs);
-        }
-
-        public Map<String, String> getGlobalOutputs() {
-            return globalOutputs;
-        }
-
-        public Map<String, String> getOverridingParameters() {
-            return overridingParameters;
-        }
-
-        public void setOverridingParameters(Map<String, String> overridingParameters) {
-            this.overridingParameters = overridingParameters;
-        }
-
 
         @Override
         public boolean isApplicable(Class<? extends AbstractProject> aClass) {
@@ -194,16 +161,10 @@ import java.util.concurrent.TimeoutException;
         public String getDisplayName() {
             return "Deploy Product";
         }
-
         @Override
-        public boolean configure(StaplerRequest req, JSONObject formData) throws Descriptor.FormException {
-            deployCounter = 0;
-            globalOutputs = new HashMap<String, String>();
-            overridingParameters = new HashMap<String, String>();
-            save();
+        public boolean configure(StaplerRequest req, JSONObject formData) throws FormException {
             return true;
         }
-
     }
 
 }

@@ -111,6 +111,7 @@ import java.util.Properties;
         final Xpp3Dom configuration = new Xpp3Dom("configuration");
         final Xpp3Dom name = new Xpp3Dom("name");
         name.setValue( "nds_"+artifact.getArtifactId()+"_deployment-scripts");
+
         configuration.addChild(name);
         final Xpp3Dom autoRequires = new Xpp3Dom("autoRequires");
         autoRequires.setValue("true");

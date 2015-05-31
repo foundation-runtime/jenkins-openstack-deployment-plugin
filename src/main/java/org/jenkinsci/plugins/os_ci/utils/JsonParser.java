@@ -11,9 +11,11 @@ import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.util.EntityUtils;
 import org.jenkinsci.plugins.os_ci.exceptions.ArtifactVersionNotFoundException;
 import org.jenkinsci.plugins.os_ci.exceptions.OsCiPluginException;
+import org.jenkinsci.plugins.os_ci.model.ArtifactParameters;
 import org.jenkinsci.plugins.os_ci.model.Nexus.NexusArtifact;
 import org.jenkinsci.plugins.os_ci.model.Openstack.EntryPoints;
 import org.jenkinsci.plugins.os_ci.model.Openstack.FloatingIP;
+import org.jenkinsci.plugins.os_ci.model.Openstack.StackDetails;
 import org.jenkinsci.plugins.os_ci.model.SelectItem;
 
 import java.io.BufferedReader;
@@ -24,7 +26,45 @@ import java.util.*;
 public class JsonParser {
 //    public static String repoId = null;
 
-    public static JsonNode parseGetStackDetails(CloseableHttpResponse response) throws JsonProcessingException, IOException {
+    public static JsonNode parseGetStackDetails(CloseableHttpResponse response, String stackName) throws JsonProcessingException, IOException {
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(response.getEntity().getContent(), "UTF-8"));
+        StringBuffer stringBuffer = new StringBuffer();
+        String line = null;
+        while ((line = reader.readLine()) != null) {
+            stringBuffer.append(line).append("\n");
+        }
+        ObjectMapper mapper = new ObjectMapper();
+        Iterator<JsonNode> stacks = mapper.readTree(stringBuffer.toString()).get("stacks").elements();
+
+        StackDetails stack_details = new StackDetails();
+
+        while (stacks.hasNext()) {
+            JsonNode stack = stacks.next();
+            if (stack.get("stack_name").textValue().equalsIgnoreCase(stackName))
+                return stack;
+        }
+
+        return null;
+
+
+    }
+
+    public static JsonNode parseGetFullStackDetails(CloseableHttpResponse response) throws JsonProcessingException, IOException {
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(response.getEntity().getContent(), "UTF-8"));
+        StringBuffer stringBuffer = new StringBuffer();
+        String line = null;
+        while ((line = reader.readLine()) != null) {
+            stringBuffer.append(line).append("\n");
+        }
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode stack_details = mapper.readTree(stringBuffer.toString()).get("stack");
+        return stack_details;
+
+    }
+
+    public static String parseGetStackError(CloseableHttpResponse response) throws JsonProcessingException, IOException {
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(response.getEntity().getContent(), "UTF-8"));
         StringBuffer stringBuffer = new StringBuffer();
@@ -34,8 +74,7 @@ public class JsonParser {
         }
         ObjectMapper mapper = new ObjectMapper();
         JsonNode requestNode = mapper.readTree(stringBuffer.toString());
-        JsonNode stack_details = requestNode.get("stack");
-        return stack_details;
+        return requestNode.get("error").get("message").textValue();
     }
 
     public static EntryPoints parseGetTokenAndEntryPoints(CloseableHttpResponse response) throws JsonProcessingException, IOException {
@@ -63,7 +102,7 @@ public class JsonParser {
             if (!publicUrl.endsWith("/"))
                 openstackServices.put(endpointService, (new StringBuilder(publicUrl).append("/").toString()));
             else
-                openstackServices.put(endpointService,publicUrl);
+                openstackServices.put(endpointService, publicUrl);
         }
 
         entrypoints.setServiceCatalog(openstackServices);
@@ -97,8 +136,7 @@ public class JsonParser {
         return nexusUpload;
     }
 
-    public static String getLatestVersion(CloseableHttpResponse response, BuildListener listener, String repoId) throws JsonProcessingException, IOException {
-        NexusArtifact nexusUpload = new NexusArtifact();
+    public static String getLatestVersion(CloseableHttpResponse response, BuildListener listener, String repoId, ArtifactParameters artifactParameters) throws JsonProcessingException, IOException {
         BufferedReader reader = new BufferedReader(new InputStreamReader(response.getEntity().getContent(), "UTF-8"));
         StringBuffer stringBuffer = new StringBuffer();
         String line = null;
@@ -114,14 +152,32 @@ public class JsonParser {
             if (repoId != null && repoId.equalsIgnoreCase("snapshots")) {
                 version = repo.get("latestSnapshot").textValue();
                 break;
+            }
+            if (repoId != null && repoId.equalsIgnoreCase("cisco_vcs-f_snapshots")) {
+                version = repo.get("latestSnapshot").textValue();
+                break;
             } else {
                 version = repo.get("latestRelease").textValue();
             }
             break;
         }
         if (version == null)
-            throw new ArtifactVersionNotFoundException("no version found");
+            throw new ArtifactVersionNotFoundException("no version found :" + artifactParameters.getGroupId() +
+                    "-" + artifactParameters.getArtifactId() + "-" + artifactParameters.getVersion());
         return version;
+    }
+
+    public static int verifyVersionAvailability(CloseableHttpResponse response, BuildListener listener, String repoId, ArtifactParameters artifactParameters) throws JsonProcessingException, IOException {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(response.getEntity().getContent(), "UTF-8"));
+        StringBuffer stringBuffer = new StringBuffer();
+        String line = null;
+        while ((line = reader.readLine()) != null) {
+            stringBuffer.append(line).append("\n");
+        }
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode requestNode = mapper.readTree(stringBuffer.toString());
+        return Integer.parseInt(requestNode.get("totalCount").asText());
+
     }
 
     public static String getRepoId(CloseableHttpResponse response, BuildListener listener) throws JsonProcessingException, IOException {
@@ -373,17 +429,15 @@ public class JsonParser {
         ObjectMapper mapper = new ObjectMapper();
         JsonNode requestNode = mapper.readTree(readResponseBody(response));
 
-        return new FloatingIP(requestNode.get("floating_ip").get("id").textValue(),requestNode.get("floating_ip").get("ip").textValue()) ;
+        return new FloatingIP(requestNode.get("floating_ip").get("id").textValue(), requestNode.get("floating_ip").get("ip").textValue());
     }
 
-    public static List<String> getFloatingIPIdsFromStackDetails(JsonNode stackDetails)
-    {
+    public static List<String> getFloatingIPIdsFromStackDetails(StackDetails stackDetails) {
         List<String> floatingIPs = new ArrayList<String>();
-        Iterator<Map.Entry<String, JsonNode>> parameters = stackDetails.get("parameters").fields();
-        while (parameters.hasNext()){
-            Map.Entry<String, JsonNode> parameter = parameters.next();
+
+        for (Map.Entry<String, String> parameter : stackDetails.getParameters().entrySet()) {
             if (parameter.getKey().contains("floating_ip_id") || parameter.getKey().contains("floatingip"))
-                floatingIPs.add(parameter.getValue().textValue());
+                floatingIPs.add(parameter.getValue());
         }
         return floatingIPs;
 

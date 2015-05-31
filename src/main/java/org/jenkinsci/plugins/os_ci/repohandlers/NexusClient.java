@@ -1,8 +1,7 @@
 package org.jenkinsci.plugins.os_ci.repohandlers;
 
 import com.google.common.base.Joiner;
-import hudson.model.AbstractBuild;
-import hudson.model.BuildListener;
+import hudson.model.*;
 import hudson.util.Secret;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
@@ -112,8 +111,10 @@ public class NexusClient {
     public List<String> downloadProductArtifacts(ArtifactParameters ap, String targetFolder, List<String> fileTypes) {
         try {
             String repoId = null;
-            if (StringUtils.containsIgnoreCase(ap.getVersion(), "snapshot")) {
+            if (StringUtils.containsIgnoreCase(ap.getVersion(), "snapshot") && StringUtils.containsIgnoreCase(ap.getGroupId(), "com.nds")) {
                 repoId = "snapshots";
+            } else if (StringUtils.containsIgnoreCase(ap.getVersion(), "snapshots") && StringUtils.containsIgnoreCase(ap.getGroupId(), "com.cisco")) {
+                repoId = "cisco_vcs-f_snapshots";
             } else {
                 repoId = getRepositoryId(ap);
             }
@@ -129,11 +130,14 @@ public class NexusClient {
                 int status = response.getStatusLine().getStatusCode();
                 if (status == 200) {
                     for (String resourceUri : JsonParser.getResourceURI(response, listener)) {
-                        if(fileTypesCopy.isEmpty()){return resourceUriList;}
-                        String type =shouldDownloadType(resourceUri, fileTypesCopy);
+                        if (fileTypesCopy.isEmpty()) {
+                            return resourceUriList;
+                        }
+                        String type = shouldDownloadType(resourceUri, fileTypesCopy);
                         if (!(type).isEmpty()) {
                             saveArtifact(resourceUri, targetFolder);
                             resourceUriList.add(resourceUri.substring(resourceUri.lastIndexOf("/") + 1, resourceUri.length()));
+                            LogUtils.log(listener, "artifact was saved : " + resourceUri.substring(resourceUri.lastIndexOf("/") + 1, resourceUri.length()));
                             fileTypesCopy.remove(type);
                         }
                     }
@@ -161,7 +165,7 @@ public class NexusClient {
     public String downloadRPM() {
         LogUtils.log(listener, "downloading from Nexus : " + artifactParameters);
         if (!artifactParameters.getOsVersion().equalsIgnoreCase("rh6")) {
-            return downloadArtifact("rpm", "", null);
+            return downloadArtifact("rpm", artifactParameters.getOsVersion(), null);
         }
         return downloadArtifact("rpm", artifactParameters.getOsVersion(), null);
     }
@@ -215,8 +219,10 @@ public class NexusClient {
 
             // Rename RPM file according to rpm metadata
             if (!System.getProperty("os.name").toLowerCase().startsWith("windows")) {
-                ExecUtils.executeLocalCommand("/usr/local/bin/download_rpm.sh " + file.getPath().replaceAll(" ", "\\ "), file.getParentFile().getPath().replaceAll(" ", "\\ "));
-                file.delete();
+                if (new File("/usr/local/bin/download_rpm.sh").exists()) {
+                    ExecUtils.executeLocalCommand("/usr/local/bin/download_rpm.sh " + file.getPath().replaceAll(" ", "\\ "), file.getParentFile().getPath().replaceAll(" ", "\\ "));
+                    file.delete();
+                }
             }
             return version;
 
@@ -295,7 +301,7 @@ public class NexusClient {
                 nexusArtifact = JsonParser.parseNexusPomUpload(response, listener);
                 NexusUpload nexusUploadPom = new NexusUpload();
                 UploadData data = new UploadData();
-                data.setDescription("version :" + pomDescription + ":" + uploadDescription + " is now ready for testing");
+                data.setDescription("version :" + ":" + nexusArtifact.getArtifactId() + ":" + nexusArtifact.getVersion() + " is now ready for testing");
                 data.setStagedRepositoryId(nexusArtifact.getRepositoryId());
                 nexusUploadPom.setData(data);
                 String body = JsonBuilder.createJson(nexusUploadPom);
@@ -360,7 +366,7 @@ public class NexusClient {
                 nexusArtifact = JsonParser.parseNexusPomUpload(response, listener);
                 NexusUpload nexusUploadPom = new NexusUpload();
                 UploadData data = new UploadData();
-                data.setDescription("version :" + pomDescription + ":" + uploadDescription + " is now ready for testing");
+                data.setDescription("version :" + ":" + nexusArtifact.getArtifactId() + ":" + nexusArtifact.getVersion() + " is now ready for testing");
                 data.setStagedRepositoryId(nexusArtifact.getRepositoryId());
                 nexusUploadPom.setData(data);
                 String body = JsonBuilder.createJson(nexusUploadPom);
@@ -526,10 +532,10 @@ public class NexusClient {
                 }
                 String version = null;
                 if (repoId != null) {
-                    version = JsonParser.getLatestVersion(response, listener, repoId);
+                    version = JsonParser.getLatestVersion(response, listener, repoId, artifactParameters);
 
                 } else {
-                    version = JsonParser.getLatestVersion(response, listener, null);
+                    version = JsonParser.getLatestVersion(response, listener, null, artifactParameters);
                 }
 
                 LogUtils.log(listener, "Artifact" + artifactParameters.getGroupId() + ":" + artifactParameters.getArtifactId() + " Latest version is :" + version);
@@ -544,6 +550,50 @@ public class NexusClient {
         }
     }
 
+    public String resolveVersionAvailability() {
+        int buildNum = 0;
+        try {
+            URIBuilder uri = new URIBuilder().setPath(nexusUrlPrefix + "/service/local/lucene/search");
+            uri.setParameter("g", artifactParameters.getGroupId());
+            uri.setParameter("a", artifactParameters.getArtifactId());
+            if (!StringUtils.containsIgnoreCase(artifactParameters.getVersion(), "-")) {
+                artifactParameters.setVersion(artifactParameters.getVersion() + "-" + buildNum);
+                uri.setParameter("v", artifactParameters.getVersion());}
+            else{
+                buildNum = Integer.parseInt(artifactParameters.getVersion().substring(artifactParameters.getVersion().indexOf("-") + 1, artifactParameters.getVersion().length()));
+                uri.setParameter("v", artifactParameters.getVersion());
+            }
+            HttpGet httpGet = new HttpGet(uri.build());
+            httpGet.addHeader("AUTHORIZATION", "Basic " + encoded);
+            httpGet.addHeader("Accept", "application/json");
+            CloseableHttpResponse response = httpClient.execute(httpGet);
+            try {
+                int status = response.getStatusLine().getStatusCode();
+                if (status != 200) {
+                    throw new OsCiPluginException("Invalid Nexus server response " + status);
+                }
+                int count = JsonParser.verifyVersionAvailability(response, listener, repoId, artifactParameters);
+                while (count != 0) {
+                    buildNum++;
+                    uri.setParameter("v", artifactParameters.getVersion().substring(0, (artifactParameters.getVersion().lastIndexOf("-"))) + "-" + buildNum);
+                    httpGet = new HttpGet(uri.build());
+                    httpGet.addHeader("AUTHORIZATION", "Basic " + encoded);
+                    httpGet.addHeader("Accept", "application/json");
+                    response = httpClient.execute(httpGet);
+                    count = JsonParser.verifyVersionAvailability(response, listener, repoId, artifactParameters);
+                }
+                artifactParameters.setVersion(artifactParameters.getVersion().substring(0, (artifactParameters.getVersion().lastIndexOf("-"))) + "-" + buildNum);
+
+                return artifactParameters.getVersion();
+            } finally {
+                response.close();
+            }
+        } catch (IOException e) {
+            throw new ArtifactVersionNotFoundException("IOException Invalid Nexus server response " + e.getMessage());
+        } catch (URISyntaxException e) {
+            throw new ArtifactVersionNotFoundException("URISyntaxException Invalid Nexus server response " + e.getMessage());
+        }
+    }
 
     private void saveArtifact(String requestUri, String targetFile) {
         try {
@@ -583,15 +633,18 @@ public class NexusClient {
     }
 
     public String increaseVersion(String increaseVersionOption) {
-        String ver;
+        String ver = null;
         try {
-            LogUtils.logSection(listener, "Setting product version");
-            ver = getLatestVersion();
-            LogUtils.log(listener, "Latest product version: " + ver);
-
-            ver = VersionUtils.increaseArtifactVersion(ver, Enum.valueOf(VersionUtils.increaseVersionOptions.class, increaseVersionOption));
-            LogUtils.log(listener, "Version Change:" + increaseVersionOption + ". Setting version to: " + ver);
-
+            if (VersionUtils.checkVersionParameterExists(build)) {
+                ver = resolveVersionAvailability();
+                LogUtils.log(listener, "Resolved product version is: " + ver);
+            } else {
+                LogUtils.logSection(listener, "Setting product version");
+                ver = getLatestVersion();
+                ver = VersionUtils.increaseArtifactVersion(ver, Enum.valueOf(VersionUtils.increaseVersionOptions.class, increaseVersionOption));
+                LogUtils.log(listener, "Latest product version: " + ver);
+                LogUtils.log(listener, "Version Change:" + increaseVersionOption + ". Setting version to: " + ver);
+            }
         } catch (ArtifactVersionNotFoundException e) {
             ver = "1.0.0-0";
             LogUtils.log(listener, "Product doesn't exist in Nexus yet.  Setting version to " + ver);

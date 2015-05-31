@@ -21,7 +21,6 @@ import org.junit.Test;
     public void getOpenstack4jTest() {
 
         try {
-
         }
         catch(Exception e){
             System.out.println("Exception");

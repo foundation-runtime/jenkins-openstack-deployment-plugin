@@ -30,19 +30,20 @@ import java.util.List;
 
 /**
  * Copyright 2015 Cisco Systems, Inc.
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */public class ProductBuilder extends Builder {
+ * <p/>
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * <p/>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p/>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+public class ProductBuilder extends Builder {
 
     private final String artifactId;
     private final String groupId;
@@ -60,8 +61,8 @@ import java.util.List;
                           String increaseVersionOption, ArtifactParameters[] artifacts,
                           UrlParameters[] externalDependencies,
                           ArtifactParameters[] dependentProducts) {
-        this.artifactId = artifactId;
-        this.groupId = groupId;
+        this.artifactId = artifactId.trim();
+        this.groupId = groupId.trim();
         this.heatGitUrl = heatGitUrl;
         this.puppetBaseGitUrl = puppetBaseGitUrl;
         this.scriptsGitUrl = scriptsGitUrl;
@@ -104,7 +105,9 @@ import java.util.List;
         return dependentProducts;
     }
 
-    public String getGroupId() { return groupId; }
+    public String getGroupId() {
+        return groupId;
+    }
 
     @Override
     public boolean perform(AbstractBuild build, Launcher launcher, BuildListener listener) throws IOException {
@@ -117,9 +120,12 @@ import java.util.List;
         final String scriptsFolder = Joiner.on(File.separator).join(build.getWorkspace().getRemote(), "deployment-scripts");
 
         // Get product version from Nexus and increase minor version
-        ArtifactParameters artifact = new ArtifactParameters(groupId, artifactId, "LATEST","pom");
-
-
+        ArtifactParameters artifact = null;
+        if (VersionUtils.checkVersionParameterExists(build)) {
+            artifact = new ArtifactParameters(groupId, artifactId, VersionUtils.getVersionParameterValue(build), "pom");
+        } else {
+            artifact = new ArtifactParameters(groupId, artifactId, "LATEST", "pom");
+        }
         Product product = new Product(artifact, build, listener);
         artifact.setVersion(new NexusClient(artifact, build, listener).increaseVersion(increaseVersionOption));
         artifact.setOsVersion("pom");
@@ -187,7 +193,7 @@ import java.util.List;
                 MavenInvoker.createRPM(rpmPomPath, build, listener);
                 LogUtils.log(listener, "Created rpm from pom:" + rpmPomPath);
             }
-            nexusClient.uploadPomWithExternalDependencies("versionDesc", pomPath, "pom.xml", tarPath, "external_dependencies.tar.gz", Joiner.on(File.separator).join(scriptsFolder, "target", "rpm", "nds_"+artifact.getArtifactId()+"_deployment-scripts", "RPMS", "noarch", "nds_"+artifact.getArtifactId()+"_deployment-scripts-" + artifact.getVersion() + "_1.noarch.rpm"));
+            nexusClient.uploadPomWithExternalDependencies("versionDesc", pomPath, "pom.xml", tarPath, "external_dependencies.tar.gz", Joiner.on(File.separator).join(scriptsFolder, "target", "rpm", "nds_" + artifact.getArtifactId() + "_deployment-scripts", "RPMS", "noarch", "nds_" + artifact.getArtifactId() + "_deployment-scripts-" + artifact.getVersion() + "_1.noarch.rpm"));
 
         } else {
             nexusClient.uploadPomWithExternalDependencies("versionDesc", pomPath, "pom.xml", tarPath, "external_dependencies.tar.gz", null);

@@ -10,6 +10,7 @@ import org.jenkinsci.plugins.os_ci.repohandlers.OpenStackClient;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +37,7 @@ public class OpenstackParameters implements Describable<OpenstackParameters> {
     private final String openstackTenant;
     private final String openstackPassword;
     private final String openstackUser;
+    private final String nameservers;
     private final String privateNetworkID;
     private final String privateSubnetID;
     private final String keyPair;
@@ -44,7 +46,7 @@ public class OpenstackParameters implements Describable<OpenstackParameters> {
 
     @DataBoundConstructor
     public OpenstackParameters(String openstackIP, String openstackTenant, String openstackPassword,
-                               String openstackUser, String privateNetworkID, String privateSubnetID, String keyPair, List<Entry> additionalParams,PolicyParameters policyParameters) {
+                               String openstackUser, String privateNetworkID, String privateSubnetID, String keyPair, List<Entry> additionalParams,PolicyParameters policyParameters, String nameservers) {
         this.openstackIP = openstackIP;
         this.openstackTenant = openstackTenant;
         this.openstackPassword = openstackPassword;
@@ -54,6 +56,7 @@ public class OpenstackParameters implements Describable<OpenstackParameters> {
         this.keyPair = keyPair;
         this.additionalParams = toMap(additionalParams);
         this.policyParameters = policyParameters;
+        this.nameservers = nameservers;
     }
 
     public Map <String, String>  getAdditionalParams() { return additionalParams; }
@@ -68,6 +71,7 @@ public class OpenstackParameters implements Describable<OpenstackParameters> {
                 ", openstackTenant='" + openstackTenant + '\'' +
                 ", openstackPassword='" + openstackPassword + '\'' +
                 ", openstackUser='" + openstackUser + '\'' +
+                ", NameServers='" + nameservers + '\'' +
                 ", privateNetworkID='" + privateNetworkID + '\'' +
                 ", privateSubnetID='" + privateSubnetID + '\'' +
                 ", keyPair='" + keyPair + '\'' +
@@ -92,6 +96,9 @@ public class OpenstackParameters implements Describable<OpenstackParameters> {
         return openstackUser;
     }
 
+    public String getNameservers() {
+        return nameservers;
+    }
 
     public String getPrivateNetworkID() {
         return privateNetworkID;
@@ -104,7 +111,6 @@ public class OpenstackParameters implements Describable<OpenstackParameters> {
     public String getKeyPair() {
         return keyPair;
     }
-
 
     public Descriptor<OpenstackParameters> getDescriptor() { return Hudson.getInstance().getDescriptor(getClass()); }
     @Extension

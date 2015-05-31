@@ -39,6 +39,9 @@
         <f:entry title="OpenStack Tenant Name" field="openstackTenant">
             <f:textbox default="openstack-tenant"/>
         </f:entry>
+        <f:entry title="OpenStack Name Servers" field="nameservers" help="plugin/control-plane-ci/help-nameservers.html">
+            <f:textbox default="10.56.167.186"/>
+        </f:entry>
     </f:section>
 
     <f:validateButton
@@ -46,6 +49,7 @@
             method="testOpenstackConnection" with="openstackIP,openstackUser,openstackPassword,openstackTenant" />
 
     <f:advanced title="Advanced Parameters" align="left">
+
         <f:entry title="Key Pair" field="keyPair">
              <f:textbox default="jenkins_keypair"/>
         </f:entry>
